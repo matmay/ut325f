@@ -256,6 +256,60 @@ assert proto.parse_frame(bytes(nonfinite))[0] is None
 say("T32 checksum-valid but non-finite value -> reported as no reading: OK")
 
 
+# --- a failed write must buffer, retry and recover, never lose rows ------
+new.AUTOSAVE_RETRY_MS = 30
+app3 = new.TempLoggerApp(tk.Toplevel(root))
+runp = tmp / "degrade.csv"
+app3._ask_log_path = lambda: runp
+app3.start_pause_logging()
+for i in range(3):
+    app3.handle_new_data([20.0 + i, None, None, 21.0 + i])
+written_before = len(runp.read_text(encoding="utf-8").splitlines())
+
+class Broken:
+    def writerow(self, row): raise OSError(5, "The device is not ready")
+app3._log_writer = Broken()
+for i in range(4):
+    app3.handle_new_data([30.0 + i, None, None, 31.0 + i])
+assert app3._log_degraded and len(app3._pending_rows) == 4, app3._pending_rows
+say("T34 write fails -> degraded, holding", len(app3._pending_rows), "rows |",
+    repr(app3.autosave_label.cget("text")[:38]))
+assert app3._log_writer is None and app3._retry_after_id is not None
+
+deadline = time.time() + 5                      # the path works again
+while app3._log_degraded and time.time() < deadline:
+    root.update(); time.sleep(0.03)
+assert not app3._log_degraded, "should have recovered"
+assert app3._pending_rows == []
+rows3 = list(csv.reader(runp.read_text(encoding="utf-8").splitlines()))
+assert len(rows3) - 2 == 7, len(rows3) - 2
+assert [r[1] for r in rows3[2:]] == ["20.00","21.00","22.00","30.00","31.00","32.00","33.00"], rows3
+say("T35 retry flushed the backlog in order; all 7 rows on disk, none lost")
+say("T36 label back to:", repr(app3.autosave_label.cget("text")[:22] + "..."))
+
+# relocation writes the WHOLE run, not just the backlog
+app3._log_writer = Broken()
+app3.handle_new_data([40.0, None, None, 41.0])
+assert app3._log_degraded
+moved = tmp / "moved.csv"
+app3._ask_log_path = lambda: moved
+new.messagebox.askyesno = lambda *a, **k: True
+app3._offer_relocate()
+assert not app3._log_degraded and app3._log_path == moved
+rows4 = list(csv.reader(moved.read_text(encoding="utf-8").splitlines()))
+assert len(rows4) - 2 == 8, len(rows4) - 2
+say("T37 relocate wrote the complete run (", len(rows4) - 2, "rows ) to", moved.name)
+
+# New File refuses to discard unwritten rows without consent
+app3._log_writer = Broken()
+app3.handle_new_data([50.0, None, None, 51.0])
+new.messagebox.askyesno = lambda *a, **k: False
+before = app3._log_path
+app3.new_log_file()
+assert app3._log_path == before and app3._pending_rows, "declined -> nothing discarded"
+say("T38 New File declined at the warning -> unwritten rows kept: OK")
+app3._closing = True; app3._cancel_log_retry()
+
 app.on_close()
 say("T18 on_close: after-ids cancelled =", app._ui_after_id is None and app._repaint_after_id is None,
     "| log file closed =", app._log_file is None, "| port =", app.serial_port)

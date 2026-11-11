@@ -35,6 +35,9 @@ RECONNECT_INTERVAL_MS = 1500   # how often to look for a vanished port again
 Y_LIMIT_MIN = -250.0
 Y_LIMIT_MAX = 1800.0
 SYNC_EVERY_ROWS = 20           # fsync the autosave file every N rows
+AUTOSAVE_RETRY_MS = 5000       # how often to retry a recording file that failed
+RELOCATE_AFTER_FAILURES = 6    # after this many failed retries, offer a new location
+MARKER_EVENTS = ("PAUSE", "LINK LOST")   # rows that carry no measurement
 AUTOSAVE_DIR = pathlib.Path.home() / "ut325f_logs"   # default offered in the Start dialog
 
 DEFAULT_LABELS = ["Channel 1", "Channel 2", "Channel 3", "Channel 4"]
@@ -121,6 +124,10 @@ class TempLoggerApp:
         self._log_path = None
         self._rows_since_sync = 0
         self._autosave_warned = False
+        self._log_degraded = False       # writes failing; rows held in memory
+        self._pending_rows = []
+        self._retry_failures = 0
+        self._retry_after_id = None
         self._last_log_dir = None
         self._pending_note = ""
         self.note_var = tk.StringVar()
@@ -660,9 +667,17 @@ class TempLoggerApp:
         self.update_plot()
 
     def _refresh_log_label(self):
-        """Restore the label to its resting text: the file being recorded to."""
-        self.autosave_label.config(
-            text=f"Recording to {self._log_path}" if self._log_path else "")
+        """Restore the label to its resting text: the file being recorded to,
+        or the degraded state if writes are currently failing."""
+        if self._log_degraded:
+            self.autosave_label.config(
+                text=f"WRITE FAILED - holding {len(self._pending_rows)} rows in memory, retrying...",
+                foreground="#cc0000")
+        elif self._log_path:
+            self.autosave_label.config(text=f"Recording to {self._log_path}",
+                                       foreground="#555555")
+        else:
+            self.autosave_label.config(text="", foreground="#555555")
 
     def _ask_log_path(self):
         """Ask where this run should be recorded. Returns a Path, or None if
@@ -689,8 +704,12 @@ class TempLoggerApp:
         still on disk. Save then exports a copy of this file.
         Returns True if recording can begin."""
         self._close_log_file()
+        self._cancel_log_retry()
         self._rows_since_sync = 0
         self._autosave_warned = False
+        self._log_degraded = False
+        self._pending_rows = []
+        self._retry_failures = 0
         try:
             self._log_path = pathlib.Path(path)
             self._log_file = open(self._log_path, "w", newline="", encoding="utf-8")
@@ -712,21 +731,139 @@ class TempLoggerApp:
             return False
 
     def _write_row(self, t, values, event=""):
-        if self._log_writer is None:
+        if self._log_path is None:
+            return
+        row = [f"{t:.6f}"] + [self._format_value(v) for v in values] + [event]
+        if self._log_degraded:
+            self._pending_rows.append(row)      # keep it; the retry will flush
+            self._refresh_log_label()
             return
         try:
-            self._log_writer.writerow([f"{t:.6f}"] + [self._format_value(v) for v in values] + [event])
+            self._log_writer.writerow(row)
             self._log_file.flush()
             self._rows_since_sync += 1
             if self._rows_since_sync >= SYNC_EVERY_ROWS:
                 os.fsync(self._log_file.fileno())
                 self._rows_since_sync = 0
         except Exception as e:
-            self._log_writer = None
-            if not self._autosave_warned:
-                self._autosave_warned = True
-                self.autosave_label.config(text="Autosave stopped - data held in memory only")
-                messagebox.showwarning("Autosave stopped", f"Writing to the autosave file failed:\n{e}")
+            self._enter_degraded(row, e)
+
+    # ---- recovery from a failed write (removable media, network share, a
+    # ---- virus scanner revoking the handle, a full disk) -------------------
+    def _enter_degraded(self, row, exc):
+        self._log_degraded = True
+        self._retry_failures = 0
+        self._pending_rows.append(row)
+        try:
+            self._log_file.close()
+        except Exception:
+            pass
+        self._log_file = None
+        self._log_writer = None
+        self._refresh_log_label()
+        self._schedule_log_retry()
+        if not self._autosave_warned:
+            self._autosave_warned = True
+            messagebox.showwarning(
+                "Write failed",
+                f"Writing to the recording file failed:\n{exc}\n\n"
+                "Samples are being held in memory and the write is retried every "
+                f"{AUTOSAVE_RETRY_MS // 1000} s. Nothing has been lost yet.")
+
+    def _schedule_log_retry(self):
+        self._cancel_log_retry()
+        self._retry_after_id = self.root.after(AUTOSAVE_RETRY_MS, self._retry_log_write)
+
+    def _cancel_log_retry(self):
+        if self._retry_after_id is not None:
+            try:
+                self.root.after_cancel(self._retry_after_id)
+            except Exception:
+                pass
+            self._retry_after_id = None
+
+    def _retry_log_write(self):
+        self._retry_after_id = None
+        if self._closing or not self._log_degraded or self._log_path is None:
+            return
+        handle = None
+        try:
+            handle = open(self._log_path, "a", newline="", encoding="utf-8")
+            writer = csv.writer(handle)
+            for row in self._pending_rows:
+                writer.writerow(row)
+            handle.flush()
+            os.fsync(handle.fileno())
+        except Exception:
+            if handle is not None:
+                try:
+                    handle.close()
+                except Exception:
+                    pass
+            self._retry_failures += 1
+            self._refresh_log_label()
+            if self._retry_failures == RELOCATE_AFTER_FAILURES:
+                self._offer_relocate()
+            self._schedule_log_retry()
+            return
+        self._log_file = handle
+        self._log_writer = writer
+        self._pending_rows = []
+        self._log_degraded = False
+        self._retry_failures = 0
+        self._rows_since_sync = 0
+        self._refresh_log_label()
+
+    def _dump_run(self, writer):
+        """Write the whole in-memory run, so a relocated file is complete."""
+        for i in range(len(self.timestamps)):
+            event = self.events[i] if i < len(self.events) else ""
+            row = [f"{self.timestamps[i]:.6f}"]
+            for ch in range(4):
+                v = self.data[ch][i]
+                row.append("" if event in MARKER_EVENTS else self._format_value(v))
+            row.append(event)
+            writer.writerow(row)
+
+    def _offer_relocate(self):
+        if not messagebox.askyesno(
+                "Recording location unavailable",
+                f"{len(self._pending_rows)} rows still cannot be written to:\n"
+                f"{self._log_path}\n\n"
+                "Choose a different file and write the whole run there?"):
+            return                           # keep buffering; do not nag again
+        path = self._ask_log_path()
+        if path is None:
+            return
+        handle = None
+        try:
+            handle = open(path, "w", newline="", encoding="utf-8")
+            writer = csv.writer(handle)
+            for header in self._header_rows():
+                writer.writerow(header)
+            self._dump_run(writer)
+            handle.flush()
+            os.fsync(handle.fileno())
+        except Exception as e:
+            if handle is not None:
+                try:
+                    handle.close()
+                except Exception:
+                    pass
+            messagebox.showerror("Could not write there either", str(e))
+            return
+        self._cancel_log_retry()
+        self._log_file = handle
+        self._log_writer = writer
+        self._log_path = pathlib.Path(path)
+        self._last_log_dir = str(self._log_path.parent)
+        self._pending_rows = []
+        self._log_degraded = False
+        self._retry_failures = 0
+        self._rows_since_sync = 0
+        self._refresh_log_label()
+        messagebox.showinfo("Recording moved",
+                            f"The run so far was written to:\n{self._log_path}")
 
     def _close_log_file(self):
         if self._log_file is not None:
@@ -763,6 +900,12 @@ class TempLoggerApp:
     def new_log_file(self):
         """Close the current recording and begin a fresh one, without
         disturbing the serial connection."""
+        if self._log_degraded and self._pending_rows:
+            if not messagebox.askyesno(
+                    "Unwritten data",
+                    f"{len(self._pending_rows)} rows have not reached disk yet.\n\n"
+                    "Starting a new file discards them. Continue?"):
+                return
         path = self._ask_log_path()
         if path is None:
             return                          # cancelled: current run continues
@@ -829,6 +972,12 @@ class TempLoggerApp:
         self._ui_after_id = self.root.after(500, self.update_ui)
 
     def on_close(self):
+        if self._log_degraded and self._pending_rows:
+            if not messagebox.askyesno(
+                    "Unwritten data",
+                    f"{len(self._pending_rows)} rows have not reached disk.\n\n"
+                    "Closing now loses them. Close anyway?"):
+                return
         self._closing = True             # queued after() callbacks become no-ops
         self.running = False
         self.stop_event.set()
@@ -842,6 +991,7 @@ class TempLoggerApp:
         self._repaint_after_id = None
         self._auto_reconnect = False
         self._cancel_reconnect()
+        self._cancel_log_retry()
         ser = self.serial_port
         if ser is not None:
             try:
