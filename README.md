@@ -38,7 +38,7 @@ or `NO DATA` if the port opened but nothing parses — usually the wrong port.
 
 **Start** asks where to record, then writes every sample to that file as it
 arrives. There is no separate save step and nothing is held only in memory, so
-an interrupted run is still on disk. Cancelling the dialog starts nothing.
+an interrupted run is still on disk. 
 
 * **Pause / Resume** — breaks the trace and marks the gap in the file.
 * **Note** — type text, press Enter or the button, and it is attached to the
@@ -48,11 +48,9 @@ an interrupted run is still on disk. Cancelling the dialog starts nothing.
 * **Open Folder** — reveals the file currently being recorded.
 
 Channel labels, trace colours, the rolling time window and the Y-axis limits can
-all be changed while a run is in progress. Manual Y limits span −250…1800 °C,
-covering the instrument's full thermocouple range.
+all be changed while a run is in progress, but channel headers in the file are not updated.
 
-If a write fails — a removable drive pulled out, a network share dropping, a
-virus scanner revoking the handle, a full disk — the sample is kept rather than
+If a write fails — a removable drive pulled out, a network share dropping — the sample is kept rather than
 dropped. The status line turns red, rows are held in memory, and the file is
 retried every 5 seconds; when it comes back the whole backlog is written in
 order, so a brief outage still leaves a complete file. If it is still failing
@@ -84,17 +82,6 @@ reading is written as `NaN`, never blanked, so it cannot be mistaken for a
 missing probe. The `Event` column holds your notes, plus `PAUSE` and
 `LINK LOST` markers on synthetic rows that carry no measurement.
 
-To read it back, drop the marker rows — they are the ones with no channel
-values at all:
-
-```python
-df = pd.read_csv(path, skiprows=1)
-chans = df.columns[1:5]
-df = df[~df[chans].isna().all(axis=1)]
-```
-
-Filtering on `Event` being empty would be wrong: your notes sit on real samples.
-
 ## Protocol
 
 Decoded from 155 captured frames. See `ut325f_protocol.py` for the full layout.
@@ -124,7 +111,7 @@ unplug/replug against a simulated port.
 
 * Reconnect only reopens the *same* port name. If a replug renames the device
   node, reselect the port manually.
-* The extra float at bytes 45..48 is not identified and is not exposed.
+* The extra float at bytes 45..48 in the serial stream from UT325F is not identified and is not exposed.
 
 ## Screenshot
 
