@@ -51,6 +51,15 @@ Channel labels, trace colours, the rolling time window and the Y-axis limits can
 all be changed while a run is in progress. Manual Y limits span −250…1800 °C,
 covering the instrument's full thermocouple range.
 
+If a write fails — a removable drive pulled out, a network share dropping, a
+virus scanner revoking the handle, a full disk — the sample is kept rather than
+dropped. The status line turns red, rows are held in memory, and the file is
+retried every 5 seconds; when it comes back the whole backlog is written in
+order, so a brief outage still leaves a complete file. If it is still failing
+after about 30 seconds you are offered a different location, and relocating
+writes the **entire run** there, not just the backlog. **New File** and closing
+the window both ask before discarding anything that has not reached disk.
+
 If the USB device is unplugged, the run is **not** lost: the gap is marked
 `LINK LOST`, the status shows `RECONNECTING...`, and recording resumes into the
 same file when the device comes back. Pressing **Disconnect** stops that — it
