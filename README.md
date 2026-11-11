@@ -25,7 +25,7 @@ run the logger. Python 3.9 or newer; tested on 3.11.
 | `ut325f_protocol.py` | Frame format: framing, checksum, parsing. Shared. |
 | `ut325f_print.py` | Prints temperatures to the console. `python ut325f_print.py COM6` |
 | `build_standalone.py` | Regenerates the standalone from the two sources. |
-| `test_correctness.py` | 41 assertions. Runs without the meter attached. |
+| `test_correctness.py` | 54 assertions. Runs without the meter attached. |
 
 Editing `ut325f_gui.py` or `ut325f_protocol.py`? Re-run `python build_standalone.py`
 afterwards, or the standalone will be stale.
