@@ -119,4 +119,4 @@ unplug/replug against a simulated port.
 
 ## License
 
-MIT, © 2025 Kishan Amratia — see `LICENSE`. Unchanged from upstream.
+MIT, © 2026 Matthias Mayer — see `LICENSE`. Unchanged from upstream.
