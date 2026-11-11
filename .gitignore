@@ -6,3 +6,8 @@ __pycache__/
 .venv/*
 *.code-workspace
 .DS_Store
+
+# Recorded runs and raw protocol captures
+ut325f_logs/
+ut325f_capture/
+*.bin
