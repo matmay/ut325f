@@ -48,7 +48,8 @@ an interrupted run is still on disk. Cancelling the dialog starts nothing.
 * **Open Folder** — reveals the file currently being recorded.
 
 Channel labels, trace colours, the rolling time window and the Y-axis limits can
-all be changed while a run is in progress.
+all be changed while a run is in progress. Manual Y limits span −250…1800 °C,
+covering the instrument's full thermocouple range.
 
 If the USB device is unplugged, the run is **not** lost: the gap is marked
 `LINK LOST`, the status shows `RECONNECTING...`, and recording resumes into the
@@ -115,17 +116,10 @@ unplug/replug against a simulated port.
 * Reconnect only reopens the *same* port name. If a replug renames the device
   node, reselect the port manually.
 * The extra float at bytes 45..48 is not identified and is not exposed.
-* Y-axis manual limits are capped at −100…200 °C, below the instrument's range.
 
-## Screenshots
+## Screenshot
 
-> Note: these predate the current left-hand panel, which now has
-> Start / Open Folder / New File and the note box, and the CSV shown has no
-> `Event` column. The plot area is unchanged.
-
-![GUI](img/image.png)
-
-![GUI with two channels](img/image-1.png)
+![ut325f GUI](img/Screenshot_GUI.png)
 
 ## License
 

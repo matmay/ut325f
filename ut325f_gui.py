@@ -29,6 +29,11 @@ REPAINT_INTERVAL_MS = 250      # repaint rate, decoupled from frame arrival.
 MAX_BUFFER_BYTES = 1 << 16     # hard cap on the serial re-sync buffer
 NO_DATA_WARN_S = 5.0           # warn if a port opens but yields no valid frame
 RECONNECT_INTERVAL_MS = 1500   # how often to look for a vanished port again
+# Manual Y-axis bounds. The UT325F spans roughly -250 C to 1767 C depending
+# on thermocouple type (J/K/T/E/R/S/N), so the old -100..200 window could not
+# be set over most of the instrument's range.
+Y_LIMIT_MIN = -250.0
+Y_LIMIT_MAX = 1800.0
 SYNC_EVERY_ROWS = 20           # fsync the autosave file every N rows
 AUTOSAVE_DIR = pathlib.Path.home() / "ut325f_logs"   # default offered in the Start dialog
 
@@ -274,10 +279,12 @@ class TempLoggerApp:
             command=self.update_plot
         ).pack(side=tk.LEFT, padx=(10, 8))
         ttk.Label(controls_row3_inner, text="Y min:").pack(side=tk.LEFT)
-        y_min_spin = ttk.Spinbox(controls_row3_inner, from_=-100, to=200, textvariable=self.y_min, width=5, command=self.update_plot)
+        y_min_spin = ttk.Spinbox(controls_row3_inner, from_=Y_LIMIT_MIN, to=Y_LIMIT_MAX,
+                                 textvariable=self.y_min, width=7, command=self.update_plot)
         y_min_spin.pack(side=tk.LEFT)
         ttk.Label(controls_row3_inner, text="Y max:").pack(side=tk.LEFT)
-        y_max_spin = ttk.Spinbox(controls_row3_inner, from_=-100, to=200, textvariable=self.y_max, width=5, command=self.update_plot)
+        y_max_spin = ttk.Spinbox(controls_row3_inner, from_=Y_LIMIT_MIN, to=Y_LIMIT_MAX,
+                                 textvariable=self.y_max, width=7, command=self.update_plot)
         y_max_spin.pack(side=tk.LEFT)
 
         self.y_min_spin = y_min_spin
