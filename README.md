@@ -1,4 +1,4 @@
-# ut325f
+# ut325f Datalogger
 
 A Python datalogger for the [UNI-T UT325F 4-channel thermometer](https://meters.uni-trend.com/product/ut325f-4-channel-thermometer/).
 
